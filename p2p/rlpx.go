@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/p2p/rlpx"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/rs/zerolog/log"
 )
 
@@ -161,62 +163,19 @@ func (c *rlpxConn) ReadAndServe(count *MessageCount) error {
 				if err := c.Write(&Pong{}); err != nil {
 					c.logger.Error().Err(err).Msg("Failed to write Pong response")
 				}
-			case *BlockHeaders:
-				atomic.AddInt32(&count.BlockHeaders, int32(len(msg.BlockHeadersPacket)))
-				c.logger.Trace().Msgf("Received %v BlockHeaders", len(msg.BlockHeadersPacket))
-			case *GetBlockHeaders:
-				atomic.AddInt32(&count.BlockHeaderRequests, 1)
-				c.logger.Trace().Msgf("Received GetBlockHeaders request")
-
-				res := &BlockHeaders{
-					RequestId: msg.RequestId,
-				}
-				if err := c.Write(res); err != nil {
-					c.logger.Error().Err(err).Msg("Failed to write BlockHeaders response")
-					return err
-				}
-			case *BlockBodies:
-				atomic.AddInt32(&count.BlockBodies, int32(len(msg.BlockBodiesPacket)))
-				c.logger.Trace().Msgf("Received %v BlockBodies", len(msg.BlockBodiesPacket))
-			case *GetBlockBodies:
-				atomic.AddInt32(&count.BlockBodiesRequests, int32(len(msg.GetBlockBodiesPacket)))
-				c.logger.Trace().Msgf("Received %v GetBlockBodies request", len(msg.GetBlockBodiesPacket))
-
-				res := &BlockBodies{
-					RequestId: msg.RequestId,
-				}
-				if err := c.Write(res); err != nil {
-					c.logger.Error().Err(err).Msg("Failed to write BlockBodies response")
-				}
-			case *NewBlockHashes:
-				atomic.AddInt32(&count.BlockHashes, int32(len(*msg)))
-				c.logger.Trace().Msgf("Received %v NewBlockHashes", len(*msg))
 			case *NewBlock:
 				atomic.AddInt32(&count.Blocks, 1)
 				c.logger.Trace().Str("hash", msg.Block.Hash().Hex()).Msg("Received NewBlock")
-			case *Transactions:
-				atomic.AddInt32(&count.Transactions, int32(len(*msg)))
-				c.logger.Trace().Msgf("Received %v Transactions", len(*msg))
-			case *PooledTransactions:
-				atomic.AddInt32(&count.Transactions, int32(len(msg.PooledTransactionsPacket)))
-				c.logger.Trace().Msgf("Received %v PooledTransactions", len(msg.PooledTransactionsPacket))
-			case *NewPooledTransactionHashes:
-				if err := c.processNewPooledTransactionHashes(count, msg.Hashes); err != nil {
-					return err
-				}
-			case *NewPooledTransactionHashes66:
-				if err := c.processNewPooledTransactionHashes(count, *msg); err != nil {
-					return err
-				}
-			case *GetPooledTransactions:
-				atomic.AddInt32(&count.TransactionRequests, int32(len(msg.GetPooledTransactionsPacket)))
-				c.logger.Trace().Msgf("Received %v GetPooledTransactions request", len(msg.GetPooledTransactionsPacket))
-
-				res := &PooledTransactions{
-					RequestId: msg.RequestId,
-				}
-				if err := c.Write(res); err != nil {
-					c.logger.Error().Err(err).Msg("Failed to write PooledTransactions response")
+				c.logger.Info().
+					Uint64("number", msg.Block.NumberU64()).
+					Str("hash", msg.Block.Hash().Hex()).
+					Msg("Received NewBlock")
+				if hash := types.DeriveSha(msg.Block.Transactions(), trie.NewStackTrie(nil)); hash != msg.Block.TxHash() {
+					c.logger.Warn().
+						Int("len(txs)", len(msg.Block.Transactions())).
+						Str("block.txhash", msg.Block.TxHash().String()).
+						Str("generated txhash", hash.String()).
+						Msg("Propagated block has invalid txs")
 				}
 			case *Error:
 				atomic.AddInt32(&count.Errors, 1)
@@ -232,7 +191,7 @@ func (c *rlpxConn) ReadAndServe(count *MessageCount) error {
 				atomic.AddInt32(&count.Disconnects, 1)
 				c.logger.Debug().Msgf("Disconnect received: %v", msg)
 			default:
-				c.logger.Info().Interface("msg", msg).Int("code", msg.Code()).Msg("Received message")
+				c.logger.Debug().Interface("msg", msg).Int("code", msg.Code()).Msg("Received message")
 			}
 		}
 	}
