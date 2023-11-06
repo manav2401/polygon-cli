@@ -166,12 +166,10 @@ func (c *rlpxConn) ReadAndServe(count *MessageCount) error {
 			case *NewBlock:
 				atomic.AddInt32(&count.Blocks, 1)
 				c.logger.Trace().Str("hash", msg.Block.Hash().Hex()).Msg("Received NewBlock")
-				c.logger.Info().
-					Uint64("number", msg.Block.NumberU64()).
-					Str("hash", msg.Block.Hash().Hex()).
-					Msg("Received NewBlock")
 				if hash := types.DeriveSha(msg.Block.Transactions(), trie.NewStackTrie(nil)); hash != msg.Block.TxHash() {
 					c.logger.Warn().
+						Uint64("number", msg.Block.NumberU64()).
+						Str("hash", msg.Block.Hash().Hex()).
 						Int("len(txs)", len(msg.Block.Transactions())).
 						Str("block.txhash", msg.Block.TxHash().String()).
 						Str("generated txhash", hash.String()).
